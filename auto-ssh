@@ -3,65 +3,203 @@
 # 通过ssh自动登录到服务器,在项目根目录下输入
 # ./auto-ssh 10.65.215.31 func57 func57
 
-if [ $# != 3 ]
-then
-  echo "<< 参数不正确 $1 $2 $3"
-  echo "$0 ip username password"
-  exit 1
+file_dir="$HOME/.autossh"
+history_file="auto-ssh.txt"
+if [ ! -d $file_dir ];then
+    mkdir $file_dir
 fi
 
-which expect > /dev/null 2>&1
-if [ $? == 0 ]; then
-    auto_ssh_login () {
-    expect -c "set timeout -1;
-                spawn ssh -o StrictHostKeyChecking=no $2 ${@:3};
-                expect {
-                    *assword:* {send -- $1\r;
-                                 expect {
-                                    *denied* {exit 2;}
-                                    eof
-                                 }
+#如果文件不存在,创建文件
+if [ ! -f "$file_dir/$history_file" ];then
+    #echo "创建文件 $file_dir/$history_file"
+    touch "$file_dir/$history_file"
+fi
+
+from_record=false
+ip=$1
+username=$2
+password=$3
+desc=$4
+
+#输入的host是否存在于文件中
+is_saved_host() {
+    #test -f "$file_dir/$history_file" && (cat "$file_dir/$history_file" | grep $1 > /dev/null)
+    if [ -f "$file_dir/$history_file" ];then
+        while read line
+        do
+            saved_host=$(echo $line | awk '{print $1}')
+            if [ $saved_host == $1 ];then
+                return 0
+            fi
+        done < "$file_dir/$history_file"
+    fi
+    return 1
+}
+
+ssh_login() {
+    which expect > /dev/null 2>&1
+    if [ $? == 0 ]; then
+        expect_ssh_login () {
+        expect -c "set timeout -1;
+                    spawn ssh -o StrictHostKeyChecking=no $2 ${@:3};
+                    expect {
+                        *assword:* {send -- $1\r;
+                                     expect {
+                                        *denied* {exit 2;}
+                                        eof
+                                     }
+                        }
+                        eof         {exit 1;}
                     }
-                    eof         {exit 1;}
-                }
-                "
-        return $?
-    }
-    echo ">>> expect"
-    auto_ssh_login $3 $2@$1
-else
-    which sshpass > /dev/null 2>&1
-    if [ $? == 1 ]; then
-        origin_dir=$(pwd)
-
-        tmp_path='tmp'
-        mkdir $tmp_path
-        cd $tmp_path
-        wget http://sourceforge.net/projects/sshpass/files/sshpass/1.05/sshpass-1.05.tar.gz
-        tar xvzf sshpass-1.05.tar.gz
-        cd sshpass-1.05
-        ./configure --prefix=/usr/local/Cellar/sshpass/1.05
-        make
-
-        echo "===开始安装sshpass"
-        sudo make install
-
-        ln -s /usr/local/Cellar/sshpass/1.05/bin/sshpass /usr/local/bin/sshpass
-
-        cd $origin_dir
-        rm -rf "${origin_dir}/${tmp_path}"
-
+                    "
+            return $?
+        }
+        echo ">>> expect"
+        expect_ssh_login $3 $2@$1
+    else
         which sshpass > /dev/null 2>&1
-        if [ $? == 0 ]; then
-            echo "===sshpass 安装成功"
-        else
-            echo "===sshpass 安装失败"
-            exit 1
+        if [ $? == 1 ]; then
+            origin_dir=$(pwd)
+
+            tmp_path='tmp'
+            mkdir $tmp_path
+            cd $tmp_path
+            wget http://sourceforge.net/projects/sshpass/files/sshpass/1.05/sshpass-1.05.tar.gz
+            tar xvzf sshpass-1.05.tar.gz
+            cd sshpass-1.05
+            ./configure --prefix=/usr/local/Cellar/sshpass/1.05
+            make
+
+            echo "===开始安装sshpass"
+            sudo make install
+
+            ln -s /usr/local/Cellar/sshpass/1.05/bin/sshpass /usr/local/bin/sshpass
+
+            cd $origin_dir
+            rm -rf "${origin_dir}/${tmp_path}"
+
+            which sshpass > /dev/null 2>&1
+            if [ $? == 0 ]; then
+                echo "===sshpass 安装成功"
+            else
+                echo "===sshpass 安装失败"
+                exit 1
+            fi
         fi
+
+        echo ">>> sshpass"
+        sshpass -p $3 ssh $2@$1
+    fi
+}
+
+#保存host信息到文件中   host username password desc
+save_or_update_host() {
+    #组装记录
+    record="$1 $2 $3"
+    if [ $# != 4 ];then
+      record="$record $1"
+    else
+      record="$record $4"
     fi
 
-    echo ">>> sshpass"
-    sshpass -p $3 ssh $2@$1
+    is_saved_host $1
+    if [ $? != 0 ] ;then
+        #如果这个host没有被保存,就保存到文件中
+        echo "$record >> $file_dir/$history_file"
+        echo $record >> "$file_dir/$history_file"
+    else
+        #如果这个host已经被保存,更新数据
+        tmp_file="$file_dir/auto-ssh-bak"
+        rm $tmp_file > /dev/null 2>&1
+        touch $tmp_file
+
+        while read line
+        do
+            saved_host=$(echo $line | awk '{print $1}')
+            if [ $saved_host == $1 ];then
+               echo $record >> $tmp_file
+            else
+               echo $line >> $tmp_file
+            fi
+        done < "$file_dir/$history_file"
+
+        cat $tmp_file > "$file_dir/$history_file"
+        rm $tmp_file > /dev/null 2>&1
+    fi
+}
+
+if [ $# -lt 3 ]
+then
+    record_size=$(cat "$file_dir/$history_file" | wc -l)
+    record_size=$(echo $record_size)
+    if [ $record_size == 0 ];then
+        echo "<< 参数不正确 $1 $2 $3"
+        echo "$0 ip username password"
+        exit 1
+    fi
+
+    echo "Which server you want to connect?"
+    cat -n "$file_dir/$history_file"
+
+    if [ $record_size == 1 ];then
+        read -p "Input 1 to connect: " num
+    else
+        read -p "[1,$record_size]: " num
+    fi
+
+    until [ $num -gt 0 ] 2>/dev/null && [ $num -le $record_size ] 2>/dev/null
+    do
+        echo -n "--warn wrong input"
+        echo ''
+        if [ $record_size == 1 ];then
+            read -p "Input 1 to connect: " num
+        else
+            read -p "[1,$record_size]: " num
+        fi
+    done
+    record=$(sed -n "${num}P" "$file_dir/$history_file")
+
+    from_record=true
+    ip=$(echo $record | awk '{print $1}')
+    username=$(echo $record | awk '{print $2}')
+    password=$(echo $record | awk '{print $3}')
+    desc=$(echo $record | awk '{print $4}')
+else
+    is_saved_host $ip
+    if [ $? != 0 ] ;then
+      echo "====================="
+        echo "host    : $ip"
+        echo "username: $username"
+        echo "password: $password"
+        echo "====================="
+        echo "Do you want to save the connection information?"
+
+        while read -p "y/n:  " line
+        do
+            case $line in
+            YES | yes | Y | y)
+                if [ $desc == "" ];then
+                    echo "没有desc"
+                    $desc=$ip
+                fi
+                save_or_update_host $ip $username $password $desc
+                break
+            ;;
+            NO | no | N | n)
+                break
+            ;;
+            *)
+                #"default"
+            ;;
+            esac
+        done
+    else
+        save_or_update_host $ip $username $password $desc
+    fi
 fi
+
+#echo $ip $username $password $desc
+
+ssh_login $ip $username $password
 
 
