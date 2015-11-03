@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# 通过ssh自动登录到服务器,在项目根目录下输入
+# ./auto-ssh 10.65.215.31 func57 func57
+
+if [ $# != 3 ]
+then
+  echo "<< 参数不正确 $1 $2 $3"
+  echo "$0 ip username password"
+  exit 1
+fi
+
+which expect > /dev/null 2>&1
+if [ $? == 0 ]; then
+    auto_ssh_login () {
+    expect -c "set timeout -1;
+                spawn ssh -o StrictHostKeyChecking=no $2 ${@:3};
+                expect {
+                    *assword:* {send -- $1\r;
+                                 expect {
+                                    *denied* {exit 2;}
+                                    eof
+                                 }
+                    }
+                    eof         {exit 1;}
+                }
+                "
+        return $?
+    }
+    echo ">>> expect"
+    auto_ssh_login $3 $2@$1
+else
+    which sshpass > /dev/null 2>&1
+    if [ $? == 1 ]; then
+        origin_dir=$(pwd)
+
+        tmp_path='tmp'
+        mkdir $tmp_path
+        cd $tmp_path
+        wget http://sourceforge.net/projects/sshpass/files/sshpass/1.05/sshpass-1.05.tar.gz
+        tar xvzf sshpass-1.05.tar.gz
+        cd sshpass-1.05
+        ./configure --prefix=/usr/local/Cellar/sshpass/1.05
+        make
+
+        echo "===开始安装sshpass"
+        sudo make install
+
+        ln -s /usr/local/Cellar/sshpass/1.05/bin/sshpass /usr/local/bin/sshpass
+
+        cd $origin_dir
+        rm -rf "${origin_dir}/${tmp_path}"
+
+        which sshpass > /dev/null 2>&1
+        if [ $? == 0 ]; then
+            echo "===sshpass 安装成功"
+        else
+            echo "===sshpass 安装失败"
+            exit 1
+        fi
+    fi
+
+    echo ">>> sshpass"
+    sshpass -p $3 ssh $2@$1
+fi
+
+
