@@ -37,26 +37,26 @@ is_saved_host() {
 }
 
 ssh_login() {
-    which expect > /dev/null 2>&1
-    if [ $? == 0 ]; then
-        expect_ssh_login () {
-        expect -c "set timeout -1;
-                    spawn ssh -o StrictHostKeyChecking=no $2 ${@:3};
-                    expect {
-                        *assword:* {send -- $1\r;
-                                     expect {
-                                        *denied* {exit 2;}
-                                        eof
-                                     }
-                        }
-                        eof         {exit 1;}
-                    }
-                    "
-            return $?
-        }
-        echo ">>> expect"
-        expect_ssh_login $3 $2@$1
-    else
+    # which expect > /dev/null 2>&1
+    # if [ $? == 0 ]; then
+    #     expect_ssh_login () {
+    #     expect -c "set timeout -1;
+    #                 spawn ssh -o StrictHostKeyChecking=no $2 ${@:3};
+    #                 expect {
+    #                     *assword:* {send -- $1\r;
+    #                                  expect {
+    #                                     *denied* {exit 2;}
+    #                                     eof
+    #                                  }
+    #                     }
+    #                     eof         {exit 1;}
+    #                 }
+    #                 "
+    #         return $?
+    #     }
+    #     echo ">>> expect"
+    #     expect_ssh_login $3 $2@$1
+    # else
         which sshpass > /dev/null 2>&1
         if [ $? == 1 ]; then
             origin_dir=$(pwd)
@@ -89,7 +89,7 @@ ssh_login() {
 
         echo ">>> sshpass"
         sshpass -p $3 ssh $2@$1
-    fi
+    #fi
 }
 
 #保存host信息到文件中   host username password desc
